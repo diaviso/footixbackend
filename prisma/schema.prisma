@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum QuizDifficulty {
+  FACILE
+  MOYEN
+  DIFFICILE
+}
+
+enum DuelDifficulty {
+  FACILE
+  MOYEN
+  DIFFICILE
+  ALEATOIRE
+}
+
+enum DuelStatus {
+  WAITING    // Waiting for participants
+  READY      // Full, waiting for creator to launch
+  PLAYING    // In progress
+  FINISHED   // Completed
+  CANCELLED  // Cancelled or expired
+}
+
+enum QuestionType {
+  QCM
+  QCU
+}
+
+
+
+model User {
+  id                  String              @id @default(uuid())
+  email               String              @unique
+  password            String?
+  firstName           String
+  lastName            String
+  country             String?
+  city                String?
+  avatar              String?
+  role                UserRole            @default(USER)
+  isEmailVerified     Boolean             @default(false)
+  googleId            String?             @unique
+  stars               Int                 @default(0)
+  showInLeaderboard   Boolean             @default(true)
+  emailNotifications  Boolean             @default(true)
+  pushNotifications   Boolean             @default(true)
+  marketingEmails     Boolean             @default(false)
+  currentSessionToken String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  emailVerifications EmailVerification[]
+  passwordResets     PasswordReset[]
+  quizAttempts      QuizAttempt[]
+  quizExtraAttempts QuizExtraAttempt[]
+  emailHistory      EmailHistory[]
+  createdDuels      Duel[]
+  duelParticipations DuelParticipant[]
+
+  @@map("users")
+}
+
+model EmailVerification {
+  id        String   @id @default(uuid())
+  userId    String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verifications")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+model Theme {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  position    Int      @unique
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quizzes Quiz[]
+
+  @@map("themes")
+}
+
+model Quiz {
+  id              String         @id @default(uuid())
+  themeId         String
+  title           String
+  description     String
+  difficulty      QuizDifficulty
+  timeLimit       Int
+  passingScore    Int
+  requiredStars   Int            @default(0)  // Minimum stars required to unlock this quiz
+  displayOrder    Int            @default(0)  // Admin-controlled display order (0 = use createdAt)
+  isFree          Boolean        @default(false)
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  theme           Theme                  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  questions       Question[]
+  attempts        QuizAttempt[]
+  extraAttempts   QuizExtraAttempt[]
+
+  @@map("quizzes")
+}
+
+model Question {
+  id         String         @id @default(uuid())
+  quizId     String
+  content    String
+  type       QuestionType
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  
+  quiz    Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options Option[]
+
+  @@map("questions")
+}
+
+model Option {
+  id          String   @id @default(uuid())
+  questionId  String
+  content     String
+  isCorrect   Boolean  @default(false)
+  explanation String?
+  createdAt   DateTime @default(now())
+  
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("options")
+}
+
+model QuizAttempt {
+  id          String   @id @default(uuid())
+  userId      String
+  quizId      String
+  score       Int
+  starsEarned Int      @default(0)
+  completedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("quiz_attempts")
+}
+
+model QuizExtraAttempt {
+  id          String   @id @default(uuid())
+  userId      String
+  quizId      String
+  starsCost   Int      // Number of stars spent for this extra attempt
+  purchasedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("quiz_extra_attempts")
+}
+
+
+model EmailHistory {
+  id              String   @id @default(uuid())
+  subject         String
+  htmlContent     String   @db.Text
+  recipientCount  Int
+  recipientEmails String   @db.Text // JSON array of emails
+  successCount    Int
+  failedCount     Int
+  errors          String?  @db.Text // JSON array of errors
+  sentById        String
+  sentAt          DateTime @default(now())
+
+  sentBy User @relation(fields: [sentById], references: [id], onDelete: Cascade)
+
+  @@map("email_history")
+}
+
+model Duel {
+  id              String         @id @default(uuid())
+  code            String         @unique
+  creatorId       String
+  maxParticipants Int            // 2, 3 or 4
+  difficulty      DuelDifficulty
+  starsCost       Int            // Stars each participant must wager
+  status          DuelStatus     @default(WAITING)
+  questionIds     String         @db.Text // JSON array of question IDs (set at launch)
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  expiresAt       DateTime       // Auto-cancel if not launched within 30min
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  creator      User              @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  participants DuelParticipant[]
+
+  @@map("duels")
+}
+
+model DuelParticipant {
+  id            String    @id @default(uuid())
+  duelId        String
+  userId        String
+  answers       String?   @db.Text // JSON: { questionId: selectedOptionIds[] }
+  score         Int       @default(0)
+  correctCount  Int       @default(0)
+  finishedAt    DateTime?
+  starsWon      Int       @default(0)
+  rank          Int?
+  joinedAt      DateTime  @default(now())
+
+  duel Duel @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([duelId, userId])
+  @@map("duel_participants")
+}
+
