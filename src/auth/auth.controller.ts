@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { CloudinaryService } from '../upload/cloudinary.service';
+import { UploadService } from '../upload/upload.service';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -36,7 +36,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly uploadService: UploadService,
   ) {}
 
   @Post('register')
@@ -166,7 +166,7 @@ export class AuthController {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
-    const { url } = await this.cloudinaryService.uploadImage(file.buffer, 'footix/avatars');
+    const { url } = await this.uploadService.uploadImage(file, 'avatars');
     return this.authService.updateAvatar(userId, url);
   }
 }
