@@ -69,6 +69,7 @@ model User {
   emailHistory      EmailHistory[]
   createdDuels      Duel[]
   duelParticipations DuelParticipant[]
+  notifications     Notification[]
 
   @@map("users")
 }
@@ -246,3 +247,24 @@ model DuelParticipant {
   @@map("duel_participants")
 }
 
+enum NotificationType {
+  DUEL_INVITE
+  RANK_DROP
+  GENERAL
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String
+  type        NotificationType
+  title       String
+  message     String
+  data        String?          @db.Text // JSON payload (duelId, code, etc.)
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}

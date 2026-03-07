@@ -5,11 +5,13 @@ import {
   Body,
   Param,
   Delete,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { DuelsService } from './duels.service';
 import { CreateDuelDto } from './dto/create-duel.dto';
 import { JoinDuelDto } from './dto/join-duel.dto';
+import { InviteDuelDto } from './dto/invite-duel.dto';
 import { SubmitDuelDto } from './dto/submit-duel.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -33,6 +35,23 @@ export class DuelsController {
     @Body() joinDuelDto: JoinDuelDto,
   ) {
     return this.duelsService.join(userId, joinDuelDto);
+  }
+
+  @Get('search-users')
+  searchUsers(
+    @CurrentUser('id') userId: string,
+    @Query('q') query: string,
+  ) {
+    return this.duelsService.searchUsers(userId, query);
+  }
+
+  @Post(':id/invite')
+  invite(
+    @CurrentUser('id') userId: string,
+    @Param('id') duelId: string,
+    @Body() inviteDto: InviteDuelDto,
+  ) {
+    return this.duelsService.invite(userId, duelId, inviteDto);
   }
 
   @Get('my')

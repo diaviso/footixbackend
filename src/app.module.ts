@@ -14,6 +14,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { UsersModule } from './users/users.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { DuelsModule } from './duels/duels.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { DuelsModule } from './duels/duels.module';
     DashboardModule,
     LeaderboardModule,
     DuelsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

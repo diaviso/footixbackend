@@ -12,6 +12,7 @@ import { AnalyzeQuestionDto, AnalysisResult } from './dto/analyze-question.dto';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Cost in stars to purchase an extra attempt
 const EXTRA_ATTEMPT_COST = 10;
@@ -24,6 +25,7 @@ export class QuizzesService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private notifications: NotificationsService,
   ) {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (apiKey) {
@@ -496,6 +498,11 @@ export class QuizzesService {
 
       // If all quizzes are passed, theme is completed
       themeCompleted = passedQuizIds.size === themeQuizzes.length && themeQuizzes.length > 0;
+    }
+
+    // Check for leaderboard rank drops (fire-and-forget)
+    if (starsEarned > 0) {
+      this.notifications.checkRankDrops(userId).catch(() => {});
     }
 
     return {

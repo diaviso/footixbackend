@@ -1,7 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateDuelDto } from './dto/create-duel.dto';
 import { JoinDuelDto } from './dto/join-duel.dto';
+import { InviteDuelDto } from './dto/invite-duel.dto';
 import { SubmitDuelDto } from './dto/submit-duel.dto';
 
 const STARS_COST_MAP = {
@@ -17,7 +19,10 @@ const DUEL_TIME_LIMIT_SECONDS = 300; // 5 minutes
 
 @Injectable()
 export class DuelsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   private generateCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -448,6 +453,13 @@ export class DuelsService {
         data: { status: 'FINISHED', finishedAt: new Date() },
       });
     });
+
+    // Check for leaderboard rank drops for winners (fire-and-forget)
+    for (let i = 0; i < ranked.length; i++) {
+      if (i === 0 || i === 1) {
+        this.notifications.checkRankDrops(ranked[i].userId).catch(() => {});
+      }
+    }
   }
 
   async getMyDuels(userId: string) {
@@ -540,6 +552,105 @@ export class DuelsService {
     }
 
     return { finalized: timedOut.length };
+  }
+
+  async searchUsers(currentUserId: string, query: string) {
+    if (!query || query.trim().length < 2) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { not: currentUserId },
+        isEmailVerified: true,
+        OR: [
+          { firstName: { contains: query, mode: 'insensitive' } },
+          { lastName: { contains: query, mode: 'insensitive' } },
+          { email: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        avatar: true,
+        email: true,
+      },
+      take: 10,
+    });
+
+    return users.map((u) => ({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      avatar: u.avatar,
+      email: u.email.replace(/(.{2})(.*)(@.*)/, '$1***$3'), // mask email
+    }));
+  }
+
+  async invite(creatorId: string, duelId: string, dto: InviteDuelDto) {
+    const duel = await this.prisma.duel.findUnique({
+      where: { id: duelId },
+      include: { participants: true },
+    });
+
+    if (!duel) throw new NotFoundException('Salon introuvable');
+    if (duel.creatorId !== creatorId) throw new ForbiddenException('Seul le créateur peut inviter.');
+    if (duel.status !== 'WAITING' && duel.status !== 'READY') {
+      throw new BadRequestException('Ce salon n\'accepte plus de joueurs.');
+    }
+    if (duel.participants.length >= duel.maxParticipants) {
+      throw new BadRequestException('Ce salon est plein.');
+    }
+
+    const invitedUser = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    if (!invitedUser) throw new NotFoundException('Utilisateur introuvable');
+
+    // Check if already in duel
+    const alreadyIn = duel.participants.some((p) => p.userId === dto.userId);
+    if (alreadyIn) throw new BadRequestException('Ce joueur est déjà dans le salon.');
+
+    // Check if invited user has enough stars
+    if (invitedUser.stars < duel.starsCost) {
+      throw new BadRequestException(
+        `${invitedUser.firstName} n'a pas assez d'étoiles (${invitedUser.stars}/${duel.starsCost}).`,
+      );
+    }
+
+    // Auto-join the invited user (debit stars + add as participant)
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: dto.userId },
+        data: { stars: { decrement: duel.starsCost } },
+      });
+      await tx.duelParticipant.create({
+        data: { duelId: duel.id, userId: dto.userId },
+      });
+    });
+
+    // Check if duel is now full -> set READY
+    const updatedCount = duel.participants.length + 1;
+    if (updatedCount >= duel.maxParticipants) {
+      await this.prisma.duel.update({
+        where: { id: duel.id },
+        data: { status: 'READY' },
+      });
+    }
+
+    // Send notification to invited user
+    const creator = await this.prisma.user.findUnique({ where: { id: creatorId }, select: { firstName: true, lastName: true } });
+    await this.notifications.create({
+      userId: dto.userId,
+      type: 'DUEL_INVITE',
+      title: 'Invitation à un duel',
+      message: `${creator?.firstName ?? 'Un joueur'} ${creator?.lastName ?? ''} vous a invité dans un duel ${duel.difficulty}.`,
+      data: { duelId: duel.id, code: duel.code },
+    });
+
+    const updatedDuel = await this.prisma.duel.findUnique({
+      where: { id: duel.id },
+      include: { participants: { include: { user: { select: { id: true, firstName: true, lastName: true, avatar: true } } } } },
+    });
+
+    return this.formatDuelResponse(updatedDuel!, creatorId);
   }
 
   private formatDuelResponse(duel: any, userId: string) {
