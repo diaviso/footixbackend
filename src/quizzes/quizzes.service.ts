@@ -803,7 +803,7 @@ Règles IMPORTANTES pour varier les questions :
           title: quizData.title,
           description: quizData.description || '',
           difficulty: difficulty,
-          timeLimit: Math.max(numberOfQuestions * 2, 10),
+          timeLimit: Math.min(Math.max(Math.ceil(numberOfQuestions * 0.6), 3), 6),
           passingScore: 70,
           isFree: true,
           isActive: true,
